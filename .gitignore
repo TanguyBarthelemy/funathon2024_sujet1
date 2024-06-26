@@ -3,3 +3,6 @@
 /site_libs/
 /*_cache/
 .Rproj.user
+secrets.yaml
+
+*.csv
