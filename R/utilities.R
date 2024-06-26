@@ -20,7 +20,7 @@ get_data <- function(path, erase_zero = TRUE, sep = ";", dec = ".", ...) {
 }
 
 # Lecture des fichiers de donnée
-write_data <- function(data, path, row.names = FALSE,...) {
+write_data <- function(data, path, row.names = FALSE, ...) {
     path <- normalizePath(path, mustWork = FALSE)
     write.table(
         x = data,

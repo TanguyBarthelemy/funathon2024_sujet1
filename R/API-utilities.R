@@ -5,16 +5,18 @@
 
 ## Récupérer la position GPS ---------------------------------------------------
 
-get_station_coordinates <- function(station_name, data_stations = csv_gare, verbose = TRUE) {
+get_station_coordinates <- function(station_name, data_stations = csv_stations, verbose = TRUE) {
     if (station_name == "Strasbourg-Ville") {
         coords <- c(lat = 48.584488, long = 7.735626)
     } else {
         coords <- data_stations |>
-            subset(libelle == station_name, select = "c_geo", drop = TRUE) |>
+            subset(libelle == station_name) |>
+            base::`[`(1L, ) |>
+            subset(select = "c_geo", drop = TRUE) |>
             strsplit(",") |>
             unlist() |>
             as.numeric() |>
-            setNames(c("lat", "long"))
+            setNames(c("lat", "lng"))
     }
 
     # Si verbose est TRUE, on affiche les coordonnées
@@ -35,8 +37,6 @@ get_travel_time_api_response <- function(endpoint = ROUTES_API_URL, request, hea
         encode = "json",
         headers
     )
-
-    content <- httr::content(response)
 
     if (!httr::http_error(response)) {
         message("La requête a bien été traitée")
@@ -118,11 +118,15 @@ get_min_travel_time <- function(response) {
             X = response$Content$results[[1L]]$locations[[1L]]$properties,
             FUN = base::`[[`,
             "travel_time"
-        ) |> min() |> base::`/`(3600)
+        ) |>
+            min() |>
+            base::`/`(3600)
     )
 }
 
-get_travel_time_from_coords <- function(coord_from, coord_to, headers = secrets_headers, endpoint = ROUTES_API_URL) {
+get_travel_time_from_coords <- function(coord_from, coord_to,
+                                        headers = secrets_headers,
+                                        endpoint = ROUTES_API_URL) {
     return(
         construct_request(coord_from, coord_to) |>
             get_travel_time_api_response(endpoint = endpoint,
@@ -131,7 +135,9 @@ get_travel_time_from_coords <- function(coord_from, coord_to, headers = secrets_
     )
 }
 
-get_travel_time_between_stations <- function(station_from, station_to, data_stations = csv_gare, verbose = TRUE) {
+get_travel_time_between_stations <- function(station_from, station_to,
+                                             data_stations = csv_stations,
+                                             verbose = TRUE) {
 
     # Si les stations sont identiques aucun trajet nécessaire
     if (station_from == station_to) {
@@ -139,10 +145,16 @@ get_travel_time_between_stations <- function(station_from, station_to, data_stat
     }
 
     # Récupérer les coordonnées pour les deux stations
-    coordinates <- lapply(c(station_from, station_to), get_station_coordinates, data_stations = data_stations, verbose = FALSE)
+    coordinates <- lapply(
+        X = c(station_from, station_to),
+        FUN = get_station_coordinates,
+        data_stations = data_stations,
+        verbose = FALSE
+    )
 
     # Générer le JSON pour l'API de routage
-    request_body <- construct_request(coord_from = coordinates[[1]], coord_to = coordinates[[2]])
+    request_body <- construct_request(coord_from = coordinates[[1]],
+                                      coord_to = coordinates[[2]])
 
     # Interroger l'API de routage
     response <- get_travel_time_api_response(ROUTES_API_URL, request_body)
@@ -151,7 +163,8 @@ get_travel_time_between_stations <- function(station_from, station_to, data_stat
     if (response[[2]] == 429) {
         if (verbose) cat("Trop de requêtes, attente d'une minute...\n")
         Sys.sleep(60)
-        return(get_travel_time_between_stations(station_from, station_to, data_stations, verbose))
+        return(get_travel_time_between_stations(station_from, station_to,
+                                                data_stations, verbose))
     }
 
     # Vérifier l'existence d'un itinéraire valide
@@ -159,7 +172,10 @@ get_travel_time_between_stations <- function(station_from, station_to, data_stat
         travel_time <- Inf
     } else {
         # Extraire les données de temps de trajet et trouver le temps de trajet minimum en heures
-        travel_times <- sapply(response[[1]]$results[[1]]$locations[[1]]$properties, function(item) item$travel_time)
+        travel_times <- sapply(
+            X = response[[1]]$results[[1]]$locations[[1]]$properties,
+            FUN = function(item) item$travel_time
+        )
         travel_time <- min(travel_times) / 3600
     }
 
@@ -186,13 +202,13 @@ compute_PKT <- function(city_1, city_2,
                         data_airports = air_traffic_df,
                         verbose = TRUE) {
     PKT <- data_airports |>
-            subset((grepl(pattern = city_1, x = LSN_DEP_NOM, ignore.case = TRUE)
-                    & grepl(pattern = city_2, x = LSN_ARR_NOM, ignore.case = TRUE))
-                   | (grepl(pattern = city_2, x = LSN_DEP_NOM, ignore.case = TRUE)
-                      & grepl(pattern = city_1, x = LSN_ARR_NOM, ignore.case = TRUE))) |>
-            transform(PKT = LSN_PAX_loc * LSN_DIST) |>
-            base::`[[`("PKT") |>
-            sum()
+        subset((grepl(pattern = city_1, x = LSN_DEP_NOM, ignore.case = TRUE)
+                & grepl(pattern = city_2, x = LSN_ARR_NOM, ignore.case = TRUE))
+               | (grepl(pattern = city_2, x = LSN_DEP_NOM, ignore.case = TRUE)
+                  & grepl(pattern = city_1, x = LSN_ARR_NOM, ignore.case = TRUE))) |>
+        transform(PKT = LSN_PAX_loc * LSN_DIST) |>
+        base::`[[`("PKT") |>
+        sum()
 
     # Afficher le temps de trajet si verbose
     if (verbose) {
@@ -214,4 +230,18 @@ extract_city_name <- function(station_name) {
     return(sapply(station_name, function(x) strsplit(x, "-")[[1]][1]))
 }
 
+get_tile <- function(x, y, zoom, url = TILES_URL) {
 
+    url <- url |>
+        gsub(pattern = "{x}", replacement = x, fixed = TRUE) |>
+        gsub(pattern = "{y}", replacement = y, fixed = TRUE) |>
+        gsub(pattern = "{z}", replacement = zoom, fixed = TRUE) |>
+        gsub(pattern = "{r}", replacement = "@2x", fixed = TRUE)
+
+    return(url)
+}
+
+
+httr::GET(
+    url = get_tile(1, 1, zoom = 7)
+)
